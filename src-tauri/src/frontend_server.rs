@@ -329,9 +329,37 @@ fn serve_one(req: tiny_http::Request) {
     let _ = req.respond(response);
 }
 
-/// 在 127.0.0.1:PORT 启动前端服务。端口被占用时返回错误。
-pub fn start() -> Result<(), String> {
-    let server = Arc::new(tiny_http::Server::http(("127.0.0.1", PORT)).map_err(|e| e.to_string())?);
+/// 启动前端服务，返回实际使用的端口。
+/// 首选 12815；被占（常见于另一个实例仍在运行）时自动顺延，
+/// 兜底随机端口，保证永不因端口冲突崩溃。
+/// 顺延端口的 IPC 由 capabilities 里 `http://127.0.0.1:*` 远程模式放行。
+pub fn start() -> Result<u16, String> {
+    let mut last_err = None;
+    let mut candidates = vec![PORT];
+    for p in (PORT + 1)..=(PORT + 16) {
+        candidates.push(p);
+    }
+    for port in candidates {
+        match tiny_http::Server::http(("127.0.0.1", port)) {
+            Ok(server) => return Ok(spawn_workers(Arc::new(server))),
+            Err(e) => last_err = Some(e.to_string()),
+        }
+    }
+    // 兜底：随机端口
+    match tiny_http::Server::http(("127.0.0.1", 0)) {
+        Ok(server) => Ok(spawn_workers(Arc::new(server))),
+        Err(e) => Err(format!(
+            "无法启动本地前端服务（{e}；最后错误：{}）",
+            last_err.unwrap_or_default()
+        )),
+    }
+}
+
+fn spawn_workers(server: Arc<tiny_http::Server>) -> u16 {
+    let port = match server.server_addr() {
+        tiny_http::ListenAddr::IP(addr) => addr.port(),
+        _ => PORT,
+    };
     for _ in 0..4 {
         let server = Arc::clone(&server);
         std::thread::Builder::new()
@@ -342,7 +370,7 @@ pub fn start() -> Result<(), String> {
                     Err(_) => break,
                 }
             })
-            .map_err(|e| e.to_string())?;
+            .ok();
     }
-    Ok(())
+    port
 }

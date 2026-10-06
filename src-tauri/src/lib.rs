@@ -108,11 +108,9 @@ pub fn run() {
 
             // macOS 26.6+ WKWebView 对 tauri:// 自定义协议主帧导航存在回归
             // （release 白屏，debug 的 http devUrl 正常），改用内嵌 HTTP 服务前端；
-            // frontendDist 指向该地址使 IPC 按本地来源放行（见 frontend_server.rs）。
-            frontend_server::start()?;
-            let url: tauri::Url = format!("http://127.0.0.1:{}/", frontend_server::PORT)
-                .parse()
-                .unwrap();
+            // frontendDist 指向首选地址使 IPC 按本地来源放行（见 frontend_server.rs）。
+            let port = frontend_server::start()?;
+            let url: tauri::Url = format!("http://127.0.0.1:{port}/").parse().unwrap();
             tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
                 .title("红果桌面版")
                 .inner_size(1280.0, 800.0)
