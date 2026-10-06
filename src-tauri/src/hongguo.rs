@@ -472,7 +472,6 @@ impl Hongguo {
         let pg = page_with(&data, &["seriesDetail"])
             .ok_or_else(|| Error::MissingData("seriesDetail".into()))?;
         let sd = pg.get("seriesDetail").cloned().unwrap_or(Value::Null);
-        let card = card_from(&sd).ok_or_else(|| Error::MissingData("剧集信息".into()))?;
         let social = pg.get("seriesSocialInfo").cloned().unwrap_or(Value::Null);
         let rating = {
             let r = f64_of(&social, &["rating"]);
