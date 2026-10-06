@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "红果桌面版",
+  "version": "1.0.4",
+  "identifier": "com.hongguo.mac",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "红果桌面版",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 980,
+        "minHeight": 620,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "icon": ["icons/icon.icns", "icons/32x32.png", "icons/128x128.png"],
+    "category": "Entertainment",
+    "shortDescription": "红果短剧 Mac 桌面播放器（非官方复刻）",
+    "longDescription": "在 Mac 上找剧、接着上次看。支持搜索、收藏、本机观看进度、选集、倍速和自动连播。非官方，仅供个人学习。"
+  },
+  "plugins": {}
+}
