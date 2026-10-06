@@ -517,26 +517,40 @@ impl Hongguo {
     }
 
     /// 取某集播放信息。`vid` 与 `ep`（1 起）至少给一个；都不给则默认第 1 集。
+    /// 注意：站点会轮换剧集 vid（历史记录里的旧 vid 会 404），
+    /// 调用方传入的 vid 不在当前列表中时自动回退为按集序号解析。
     pub async fn play_info(&self, series_id: &str, vid: Option<&str>, ep: Option<i64>) -> Result<PlayInfo> {
-        // 需要剧集列表来确定集序；若调用方已带 vid 则仍取详情对齐 ep_index
         let det = self.detail(series_id).await?;
         let list = det.vid_list;
         if list.is_empty() {
             return Err(Error::MissingData("剧集列表为空".into()));
         }
-        let (vid, ep_index) = match vid {
+        let (mut vid, ep_index) = match vid {
             Some(v) => {
-                let idx = list.iter().position(|x| x == v).map(|i| i as i64 + 1).unwrap_or(1);
-                (v.to_string(), idx)
+                let idx = list.iter().position(|x| x == v).map(|i| i as i64 + 1).unwrap_or(ep.unwrap_or(1));
+                let idx = idx.clamp(1, list.len() as i64) as usize;
+                // vid 已失效（不在当前列表）→ 用集序号对应的当前 vid
+                let v = if list[idx - 1] == v { v.to_string() } else { list[idx - 1].clone() };
+                (v, idx as i64)
             }
             None => {
                 let idx = (ep.unwrap_or(1)).clamp(1, list.len() as i64) as usize;
                 (list[idx - 1].clone(), idx as i64)
             }
         };
-        let data = self
-            .router_data(&format!("/player/{series_id}/{vid}"))
-            .await?;
+        let fetch_page = |sid: &str, vid: &str| {
+            let path = format!("/player/{sid}/{vid}");
+            async move { self.router_data(&path).await }
+        };
+        let data = match fetch_page(series_id, &vid).await {
+            Ok(d) => d,
+            Err(Error::Http(e)) if e.status() == Some(reqwest::StatusCode::NOT_FOUND) => {
+                // vid 仍失效（如详情缓存差异）：强制用当前列表的集 vid 重试一次
+                vid = list[(ep_index - 1).clamp(0, list.len() as i64 - 1) as usize].clone();
+                fetch_page(series_id, &vid).await?
+            }
+            Err(e) => return Err(e),
+        };
         let pg = page_with(&data, &["video_player_info"])
             .ok_or_else(|| Error::MissingData("video_player_info".into()))?;
         let vp = pg.get("video_player_info").cloned().unwrap_or(Value::Null);

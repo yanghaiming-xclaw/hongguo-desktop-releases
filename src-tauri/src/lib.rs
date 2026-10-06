@@ -1,3 +1,4 @@
+mod avplayer;
 mod commands;
 mod frontend_server;
 pub mod hongguo;
@@ -110,13 +111,28 @@ pub fn run() {
             // （release 白屏，debug 的 http devUrl 正常），改用内嵌 HTTP 服务前端；
             // frontendDist 指向首选地址使 IPC 按本地来源放行（见 frontend_server.rs）。
             let port = frontend_server::start()?;
-            let url: tauri::Url = format!("http://127.0.0.1:{port}/").parse().unwrap();
+            let mut url: tauri::Url = format!("http://127.0.0.1:{port}/").parse().unwrap();
+            // 测试钩子：HG_TEST_HASH=player/{sid}?ep=1 直接以播放页启动
+            if let Ok(h) = std::env::var("HG_TEST_HASH") {
+                if !h.is_empty() {
+                    url.set_fragment(Some(h.as_str()));
+                }
+            }
+            // 原生 AVPlayer 视频层垫底：webview 需透明，播放页视频区域透出原生画面
+            // （macOS 26.6+ WKWebView 的 <video>/canvas 合成层上屏失效，见 avplayer.rs）
             tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
                 .title("红果桌面版")
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(980.0, 620.0)
                 .center()
+                .transparent(true)
                 .build()?;
+
+            // 原生播放层插到 webview 之下（主线程）
+            let win = app.get_webview_window("main").ok_or("主窗口缺失")?;
+            let ns = win.ns_window().map_err(|e| format!("获取 NSWindow 失败: {e}"))?;
+            let player = avplayer::create_under_webview(ns)?;
+            app.manage(player);
 
             Ok(())
         })
@@ -138,6 +154,13 @@ pub fn run() {
             commands::setting_set,
             commands::wipe_all,
             commands::apply_boss_key,
+            commands::av_load,
+            commands::av_play,
+            commands::av_pause,
+            commands::av_seek,
+            commands::av_set_rate,
+            commands::av_set_muted,
+            commands::av_position,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

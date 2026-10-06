@@ -174,11 +174,11 @@ input { font-family: inherit; }
 .ep-cell.watched { color: var(--accent); border-color: var(--accent-weak); background: var(--accent-weak); }
 
 /* ---------- 播放页 ---------- */
-/* 必须脱离 .main 滚动容器：overflow 容器内的 <video> 会导致
-   WKWebView 视频合成层失效（有声无图），fixed 定位规避 */
-.player-page { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; background: #000; }
+/* 页面背景透明：视频画面由原生 AVPlayerLayer 呈现（webview 之下的原生层），
+   播放页以外的页面保持不透明背景 */
+.player-page { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; background: transparent; }
+body.player-open { background: transparent !important; }
 .video-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
-.video-stage video { width: 100%; height: 100%; outline: none; background: transparent; transform: translateZ(0); }
 .player-top {
   position: absolute; top: 0; left: 0; right: 0; z-index: 5;
   padding: 14px 18px; display: flex; align-items: center; gap: 12px;
@@ -338,3 +338,7 @@ input { font-family: inherit; }
   position: absolute; left: 22px; bottom: 16px; color: #fff; font-size: 20px; font-weight: 800;
   text-shadow: 0 1px 6px rgba(0,0,0,0.6);
 }
+
+/* 临时调试 */
+.video-stage .debug-visible { z-index: 0; }
+.video-stage .debug-overlay { position: absolute; top: 70px; left: 20px; z-index: 9; color: #0f0; font: 16px monospace; background: rgba(0,0,0,0.7); padding: 8px; }

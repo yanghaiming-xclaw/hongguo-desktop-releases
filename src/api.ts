@@ -122,6 +122,12 @@ export interface FavoriteItem {
   created_at: number;
 }
 
+export interface AvPosition {
+  position: number;
+  duration: number;
+  rate: number;
+}
+
 export const api = {
   homeFeed: () => invoke<HomeFeed>("home_feed"),
   category: (route: string, page = 1) =>
@@ -146,6 +152,15 @@ export const api = {
   settingSet: (key: string, value: string) => invoke<void>("setting_set", { key, value }),
   wipeAll: () => invoke<void>("wipe_all"),
   applyBossKey: (accelerator: string) => invoke<void>("apply_boss_key", { accelerator }),
+
+  // 原生 AVPlayer
+  avLoad: (url: string) => invoke<{ duration: number }>("av_load", { url }),
+  avPlay: () => invoke<void>("av_play"),
+  avPause: () => invoke<void>("av_pause"),
+  avSeek: (seconds: number) => invoke<void>("av_seek", { seconds }),
+  avSetRate: (rate: number) => invoke<void>("av_set_rate", { rate }),
+  avSetMuted: (muted: boolean) => invoke<void>("av_set_muted", { muted }),
+  avPosition: () => invoke<AvPosition>("av_position"),
 };
 
 export const APP_VERSION = "1.0.4";

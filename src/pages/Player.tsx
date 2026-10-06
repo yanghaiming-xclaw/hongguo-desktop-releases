@@ -17,7 +17,6 @@ export default function Player() {
   const [params] = useSearchParams();
   const nav = useNavigate();
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
 
   const [info, setInfo] = useState<PlayInfo | null>(null);
@@ -27,7 +26,6 @@ export default function Player() {
   const [playing, setPlaying] = useState(false);
   const [cur, setCur] = useState(0);
   const [dur, setDur] = useState(0);
-  const [buffered, setBuffered] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [speedOpen, setSpeedOpen] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -37,15 +35,15 @@ export default function Player() {
   const [resumePos, setResumePos] = useState(0); // >0 显示续播提示
   const [uiVisible, setUiVisible] = useState(true);
 
-  const speedRef = useRef(speed);
   const infoRef = useRef(info);
-  const resumeAtRef = useRef(0); // 待应用的历史进度
-  const pendingPrefetch = useRef<PlayInfo | null>(null);
+  const resumeAtRef = useRef(0);
+  const endedFiredRef = useRef(""); // 已触发过 ended 的 vid
   const hideTimer = useRef<number | null>(null);
-
+  const speedRef = useRef(1);
   useEffect(() => {
     speedRef.current = speed;
   }, [speed]);
+
   useEffect(() => {
     infoRef.current = info;
   }, [info]);
@@ -57,11 +55,14 @@ export default function Player() {
       setLoading(true);
       setErr("");
       setResumePos(0);
+      setCur(0);
+      setDur(0);
       try {
         const pi = await api.playInfo(seriesId, vid, ep);
         setInfo(pi);
-        pendingPrefetch.current = null;
-        // 查历史进度（仅在同一集时提示续播）
+        // 原生播放器加载（404/旧 vid 已在 Rust 侧回退解决）
+        await api.avLoad(pi.url);
+        // 查历史进度（仅同一集时提示续播）
         try {
           const h = (await api.historyList()).find((x) => x.series_id === seriesId);
           if (h && h.position_sec > 30 && h.vid === pi.vid) {
@@ -71,6 +72,11 @@ export default function Player() {
         } catch {
           /* ignore */
         }
+        if (resumeAtRef.current > 0) {
+          await api.avSeek(resumeAtRef.current);
+        }
+        await api.avSetRate(speedRef.current);
+        await api.avPlay();
         // 落一条历史（封面用当前集海报）
         await api.historyUpsert({
           series_id: pi.series_id,
@@ -108,14 +114,22 @@ export default function Player() {
       .catch(() => {});
   }, []);
 
-  // ---------- 进度落库 ----------
+  // ---------- 进度轮询（原生播放器）----------
+  const curRef = useRef(0);
+  const durRef = useRef(0);
+  useEffect(() => {
+    curRef.current = cur;
+  }, [cur]);
+  useEffect(() => {
+    durRef.current = dur;
+  }, [dur]);
+
   const saveProgress = useCallback((finalSave = false) => {
-    const v = videoRef.current;
     const pi = infoRef.current;
-    if (!v || !pi) return;
-    const pos = v.currentTime;
-    const d = v.duration || 0;
-    // 播到结尾附近视为看完，不留续播点（原版行为：可删除历史与续播位置）
+    if (!pi) return;
+    const pos = curRef.current;
+    const d = durRef.current;
+    // 播到结尾附近视为看完，不留续播点
     if (!finalSave && (pos < 5 || (d > 0 && pos > d - 3))) return;
     api
       .historyUpsert({
@@ -132,6 +146,41 @@ export default function Player() {
       .catch(() => {});
   }, []);
 
+  const gotoEpRef = useRef<(ep: number) => void>(() => {});
+
+  useEffect(() => {
+    const t = window.setInterval(async () => {
+      try {
+        const p = await api.avPosition();
+        setCur(p.position);
+        if (p.duration > 0) setDur(p.duration);
+        const isPlaying = p.rate > 0;
+        setPlaying(isPlaying);
+        // 结束检测：正在播 && 到达片尾
+        const pi = infoRef.current;
+        if (
+          pi &&
+          isPlaying &&
+          p.duration > 0 &&
+          p.position >= p.duration - 0.45 &&
+          endedFiredRef.current !== pi.vid
+        ) {
+          endedFiredRef.current = pi.vid;
+          saveProgress(true);
+          if (autoNext && pi.ep_index < pi.vid_list.length) {
+            gotoEpRef.current?.(pi.ep_index + 1);
+          } else {
+            await api.avPause();
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 250);
+    return () => window.clearInterval(t);
+  }, [autoNext, saveProgress]);
+
+  // 进度落库（定时 + 卸载）
   useEffect(() => {
     const t = window.setInterval(() => saveProgress(), 5000);
     return () => {
@@ -147,120 +196,54 @@ export default function Player() {
       if (!pi) return;
       if (ep < 1 || ep > pi.vid_list.length) return;
       saveProgress(true);
-      if (pi.ep_index === ep - 1 && pendingPrefetch.current) {
-        // 用预取结果
-        const nx = pendingPrefetch.current;
-        pendingPrefetch.current = null;
-        setInfo(nx);
-        setResumePos(0);
-        resumeAtRef.current = 0;
-        setLoading(false);
-        api
-          .historyUpsert({
-            series_id: nx.series_id,
-            title: nx.title,
-            cover: nx.poster,
-            vid: nx.vid,
-            ep_index: nx.ep_index,
-            ep_total: nx.vid_list.length,
-            position_sec: 0,
-            duration_sec: 0,
-            updated_at: 0,
-          })
-          .catch(() => {});
-      } else {
-        await load(ep);
-      }
+      await load(ep);
     },
     [load, saveProgress],
   );
-
-  // 预取下一集
   useEffect(() => {
-    const pi = info;
-    if (!pi || !autoNext) return;
-    if (pi.ep_index >= pi.vid_list.length) return;
-    const v = videoRef.current;
-    const maybeFetch = () => {
-      if (pendingPrefetch.current) return;
-      if (v && v.duration > 0 && v.currentTime > Math.max(v.duration - 40, v.duration * 0.6)) {
-        api
-          .playInfo(pi.series_id, undefined, pi.ep_index + 1)
-          .then((nx) => (pendingPrefetch.current = nx))
-          .catch(() => {});
-      }
-    };
-    v?.addEventListener("timeupdate", maybeFetch);
-    return () => v?.removeEventListener("timeupdate", maybeFetch);
-  }, [info, autoNext]);
+    gotoEpRef.current = gotoEp;
+  }, [gotoEp]);
 
-  // ---------- 视频事件 ----------
-  const onLoadedMetadata = () => {
-    const v = videoRef.current;
-    if (!v) return;
-    v.playbackRate = speedRef.current;
-    if (resumeAtRef.current > 0 && resumeAtRef.current < v.duration - 5) {
-      v.currentTime = resumeAtRef.current;
-    }
-    resumeAtRef.current = 0;
-    v.play().catch(() => {});
+  // ---------- 控制 ----------
+  const applySpeed = (sp: number) => {
+    setSpeed(sp);
+    setSpeedOpen(false);
+    api.avSetRate(sp).catch(() => {});
   };
 
-  const onEnded = () => {
-    const pi = infoRef.current;
-    if (!pi) return;
-    saveProgress(true);
-    if (autoNext && pi.ep_index < pi.vid_list.length) {
-      gotoEp(pi.ep_index + 1);
-    }
-  };
-
-  const onVideoError = () => {
-    // 签名 URL 可能过期：重取一次
-    const pi = infoRef.current;
-    fetch(`/diag?event=video_error&vid=${pi?.vid || ""}`).catch(() => {});
-    if (!pi) return;
-    load(pi.ep_index);
-  };
-
-  // ---------- 控制条 ----------
   const showUi = useCallback(() => {
     setUiVisible(true);
     if (hideTimer.current) window.clearTimeout(hideTimer.current);
     hideTimer.current = window.setTimeout(() => {
-      const v = videoRef.current;
-      if (v && !v.paused) setUiVisible(false);
+      if (playing) setUiVisible(false);
     }, 2600);
-  }, []);
+  }, [playing]);
 
   useEffect(() => {
     showUi();
   }, [showUi]);
 
   const togglePlay = useCallback(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (v.paused) v.play().catch(() => {});
-    else {
-      v.pause();
+    if (playing) {
+      api.avPause().catch(() => {});
       saveProgress();
+    } else {
+      api.avPlay().catch(() => {});
     }
     showUi();
-  }, [saveProgress, showUi]);
+  }, [playing, saveProgress, showUi]);
 
   // 键盘
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const v = videoRef.current;
-      if (!v) return;
       if (e.key === " ") {
         e.preventDefault();
         togglePlay();
       } else if (e.key === "ArrowLeft") {
-        v.currentTime = Math.max(0, v.currentTime - 5);
+        api.avSeek(Math.max(0, curRef.current - 5)).catch(() => {});
         showUi();
       } else if (e.key === "ArrowRight") {
-        v.currentTime = Math.min(v.duration || 0, v.currentTime + 5);
+        api.avSeek(Math.min(durRef.current, curRef.current + 5)).catch(() => {});
         showUi();
       } else if (e.key === "Escape") {
         nav(-1);
@@ -274,14 +257,12 @@ export default function Player() {
   useEffect(() => {
     const un = listen<string>("boss-key", async (ev) => {
       const muteHide = (await api.settingGet("mute_on_hide").catch(() => null)) === "1";
-      const v = videoRef.current;
-      if (!v) return;
       if (ev.payload === "hide" && muteHide) {
-        v.muted = true;
         setMuted(true);
+        api.avSetMuted(true).catch(() => {});
       } else if (ev.payload === "show" && muteHide) {
-        v.muted = false;
         setMuted(false);
+        api.avSetMuted(false).catch(() => {});
       }
     });
     return () => {
@@ -289,19 +270,21 @@ export default function Player() {
     };
   }, []);
 
-  const seekTo = (e: React.MouseEvent<HTMLDivElement>) => {
-    const v = videoRef.current;
-    if (!v || !v.duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    v.currentTime = ((e.clientX - rect.left) / rect.width) * v.duration;
-    showUi();
-  };
+  // 播放页打开时页面背景透明，透出原生视频层；返回时恢复
+  useEffect(() => {
+    document.body.classList.add("player-open");
+    return () => {
+      document.body.classList.remove("player-open");
+    };
+  }, []);
 
-  const applySpeed = (sp: number) => {
-    setSpeed(sp);
-    setSpeedOpen(false);
-    const v = videoRef.current;
-    if (v) v.playbackRate = sp;
+  const seekTo = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!dur) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pos = ((e.clientX - rect.left) / rect.width) * dur;
+    api.avSeek(pos).catch(() => {});
+    setCur(pos);
+    showUi();
   };
 
   const pi = info;
@@ -309,49 +292,28 @@ export default function Player() {
 
   return (
     <div className="player-page">
-      <div className="video-stage" ref={stageRef} style={{ cursor: uiVisible ? "default" : "none" }}>
-        {pi && (
-          <video
-            ref={(el) => {
-              videoRef.current = el;
-              // 红果 CDN 校验 Referer：本地来源会被 403。视频走本地流代理
-              // /api/stream（Rust 侧无 Referer 拉流转发），poster 仍直连。
-              el?.setAttribute("referrerpolicy", "no-referrer");
-            }}
-            src={`/api/stream?sid=${pi.series_id}&vid=${pi.vid}`}
-            poster={pi.poster}
-            playsInline
-            autoPlay
-            onLoadedMetadata={onLoadedMetadata}
-            onPlay={() => {
-              setPlaying(true);
-              showUi();
-            }}
-            onPause={() => {
-              setPlaying(false);
-              setUiVisible(true);
-            }}
-            onTimeUpdate={(e) => {
-              const v = e.currentTarget;
-              setCur(v.currentTime);
-              if (v.duration) setDur(v.duration);
-              if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1));
-            }}
-            onEnded={onEnded}
-            onError={onVideoError}
-            onClick={togglePlay}
-            onDoubleClick={() => setEpListOpen((s) => !s)}
-          />
-        )}
+      <div
+        className="video-stage"
+        ref={stageRef}
+        style={{ cursor: uiVisible ? "default" : "none" }}
+        onClick={togglePlay}
+        onDoubleClick={() => setEpListOpen((s) => !s)}
+        onMouseMove={showUi}
+      >
+        {/* 视频画面由原生 AVPlayerLayer 呈现（webview 此处透明） */}
 
         {/* 顶栏 */}
         <div className={"player-top" + (uiVisible ? " show-ui" : "")}>
-          <button className="back" onClick={() => nav(-1)}>
+          <button
+            className="back"
+            onClick={(e) => {
+              e.stopPropagation();
+              nav(-1);
+            }}
+          >
             ‹ 返回
           </button>
-          <div className="title">
-            {pi ? `${pi.title} 第${pi.ep_index}集` : "加载中…"}
-          </div>
+          <div className="title">{pi ? `${pi.title} 第${pi.ep_index}集` : "加载中…"}</div>
         </div>
 
         {/* 续播提示 */}
@@ -359,9 +321,9 @@ export default function Player() {
           <div className="resume-toast">
             <span>上次看到 {fmt(resumePos)}</span>
             <button
-              onClick={() => {
-                const v = videoRef.current;
-                if (v) v.currentTime = resumePos;
+              onClick={(e) => {
+                e.stopPropagation();
+                api.avSeek(resumePos).catch(() => {});
                 setResumePos(0);
               }}
             >
@@ -369,9 +331,9 @@ export default function Player() {
             </button>
             <button
               className="ghost"
-              onClick={() => {
-                const v = videoRef.current;
-                if (v) v.currentTime = 0;
+              onClick={(e) => {
+                e.stopPropagation();
+                api.avSeek(0).catch(() => {});
                 setResumePos(0);
               }}
             >
@@ -384,7 +346,14 @@ export default function Player() {
         {speedOpen && (
           <div className="speed-menu">
             {SPEEDS.map((sp) => (
-              <button key={sp} className={speed === sp ? "on" : ""} onClick={() => applySpeed(sp)}>
+              <button
+                key={sp}
+                className={speed === sp ? "on" : ""}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  applySpeed(sp);
+                }}
+              >
                 {sp}x
               </button>
             ))}
@@ -392,17 +361,23 @@ export default function Player() {
         )}
 
         {/* 控制条 */}
-        <div className={"player-controls" + (uiVisible ? " show-ui" : "")}>
+        <div
+          className={"player-controls" + (uiVisible ? " show-ui" : "")}
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="seek-bar" onClick={seekTo}>
-            <div
-              className="buffered"
-              style={{ width: dur ? `${(buffered / dur) * 100}%` : "0%" }}
-            />
             <div className="played" style={{ width: dur ? `${(cur / dur) * 100}%` : "0%" }} />
             <div className="knob" style={{ left: dur ? `${(cur / dur) * 100}%` : "0%" }} />
           </div>
           <div className="ctrl-row">
-            <button className="ctrl-btn" onClick={togglePlay} title="播放/暂停（空格）">
+            <button
+              className="ctrl-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePlay();
+              }}
+              title="播放/暂停（空格）"
+            >
               {playing ? (
                 <svg viewBox="0 0 24 24">
                   <path d="M6 5h4v14H6zM14 5h4v14h-4z" />
@@ -415,7 +390,10 @@ export default function Player() {
             </button>
             <button
               className="ctrl-btn"
-              onClick={() => gotoEp((pi?.ep_index || 1) - 1)}
+              onClick={(e) => {
+                e.stopPropagation();
+                gotoEp((pi?.ep_index || 1) - 1);
+              }}
               disabled={!pi || pi.ep_index <= 1}
               title="上一集"
             >
@@ -423,7 +401,10 @@ export default function Player() {
             </button>
             <button
               className="ctrl-btn"
-              onClick={() => gotoEp((pi?.ep_index || 1) + 1)}
+              onClick={(e) => {
+                e.stopPropagation();
+                gotoEp((pi?.ep_index || 1) + 1);
+              }}
               disabled={!pi || pi.ep_index >= epTotal}
               title="下一集"
             >
@@ -435,7 +416,8 @@ export default function Player() {
             <span className="spacer" />
             <button
               className={"ctrl-btn" + (autoNext ? " on" : "")}
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 const nv = !autoNext;
                 setAutoNext(nv);
                 api.settingSet("auto_next", nv ? "1" : "0").catch(() => {});
@@ -447,18 +429,21 @@ export default function Player() {
             <button
               className="ctrl-btn"
               style={{ fontWeight: 700 }}
-              onClick={() => setSpeedOpen((s) => !s)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSpeedOpen((s) => !s);
+              }}
               title="倍速（切换剧集不重置）"
             >
               {speed}x
             </button>
             <button
               className={"ctrl-btn" + (muted ? "" : " on")}
-              onClick={() => {
-                const v = videoRef.current;
-                if (!v) return;
-                v.muted = !v.muted;
-                setMuted(v.muted);
+              onClick={(e) => {
+                e.stopPropagation();
+                const nm = !muted;
+                setMuted(nm);
+                api.avSetMuted(nm).catch(() => {});
               }}
               title="静音"
             >
@@ -466,7 +451,10 @@ export default function Player() {
             </button>
             <button
               className={"ctrl-btn" + (epListOpen ? " on" : "")}
-              onClick={() => setEpListOpen((s) => !s)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setEpListOpen((s) => !s);
+              }}
               title="选集"
             >
               ☰ 选集
@@ -487,14 +475,21 @@ export default function Player() {
             <div style={{ fontSize: 12, opacity: 0.8 }}>
               可先重试当前集；若持续失败，请在「设置 → 播放服务」检查连接
             </div>
-            <button onClick={() => pi && load(pi.ep_index)}>重试当前集</button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                pi && load(pi.ep_index);
+              }}
+            >
+              重试当前集
+            </button>
           </div>
         )}
       </div>
 
       {/* 选集侧栏 */}
       {epListOpen && pi && (
-        <div className="ep-sidebar">
+        <div className="ep-sidebar" onClick={(e) => e.stopPropagation()}>
           <div className="head">
             {pi.title}（共 {epTotal} 集）
           </div>

@@ -40,18 +40,21 @@ fn serve_api(path: &str) -> Option<(String, &'static str)> {
         ),
         p if p.starts_with("/api/play?") => {
             let q = p.trim_start_matches("/api/play?");
-            let mut sid = "";
+            let mut sid = String::new();
+            let mut vid = String::new();
             let mut ep = 1i64;
             for kv in q.split('&') {
                 let mut it = kv.splitn(2, '=');
                 match (it.next(), it.next()) {
-                    (Some("sid"), Some(v)) => sid = v,
+                    (Some("sid"), Some(v)) => sid = v.to_string(),
+                    (Some("vid"), Some(v)) => vid = v.to_string(),
                     (Some("ep"), Some(v)) => ep = v.parse().unwrap_or(1),
                     _ => {}
                 }
             }
+            let vid_opt = if vid.is_empty() { None } else { Some(vid.as_str()) };
             Some(
-                rt.block_on(hongguo_client().play_info(sid, None, Some(ep)))
+                rt.block_on(hongguo_client().play_info(&sid, vid_opt, Some(ep)))
                     .map(|v| serde_json::to_string(&v).unwrap()),
             )
         }

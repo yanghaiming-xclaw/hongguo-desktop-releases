@@ -1,8 +1,12 @@
 //! Tauri IPC 命令层。
 
+use crate::avplayer::{AvLoadInfo, AvPlayer, AvPosition};
 use crate::hongguo::{self, Hongguo};
 use crate::store::{FavoriteItem, HistoryItem, Store};
+use std::sync::Mutex;
 use tauri::State;
+
+type PlayerState<'a> = State<'a, Mutex<AvPlayer>>;
 
 #[tauri::command]
 pub async fn home_feed(hg: State<'_, Hongguo>) -> Result<hongguo::HomeFeed, String> {
@@ -108,6 +112,53 @@ pub async fn setting_set(
 #[tauri::command]
 pub async fn wipe_all(store: State<'_, Store>) -> Result<(), String> {
     store.wipe_all()
+}
+
+// ---------- 原生播放器（AVPlayer） ----------
+
+#[tauri::command]
+pub async fn av_load(
+    player: PlayerState<'_>,
+    url: String,
+) -> Result<AvLoadInfo, String> {
+    player.lock().unwrap().load(&url);
+    // 时长可能尚未就绪，前端通过 av_position 轮询补齐
+    Ok(AvLoadInfo { duration: 0.0 })
+}
+
+#[tauri::command]
+pub async fn av_play(player: PlayerState<'_>) -> Result<(), String> {
+    player.lock().unwrap().play();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn av_pause(player: PlayerState<'_>) -> Result<(), String> {
+    player.lock().unwrap().pause();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn av_seek(player: PlayerState<'_>, seconds: f64) -> Result<(), String> {
+    player.lock().unwrap().seek(seconds);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn av_set_rate(player: PlayerState<'_>, rate: f64) -> Result<(), String> {
+    player.lock().unwrap().set_rate(rate);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn av_set_muted(player: PlayerState<'_>, muted: bool) -> Result<(), String> {
+    player.lock().unwrap().set_muted(muted);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn av_position(player: PlayerState<'_>) -> Result<AvPosition, String> {
+    Ok(player.lock().unwrap().position())
 }
 
 // ---------- 老板键 / 应用级 ----------
