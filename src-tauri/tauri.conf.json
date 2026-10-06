@@ -4,24 +4,13 @@
   "version": "1.0.4",
   "identifier": "com.hongguo.mac",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run build",
     "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist"
+    "frontendDist": "http://127.0.0.1:12815"
   },
   "app": {
     "withGlobalTauri": false,
-    "windows": [
-      {
-        "label": "main",
-        "title": "红果桌面版",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 980,
-        "minHeight": 620,
-        "center": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

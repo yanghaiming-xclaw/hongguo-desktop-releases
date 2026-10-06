@@ -1,4 +1,5 @@
-pub mod commands;
+mod commands;
+mod frontend_server;
 pub mod hongguo;
 pub mod store;
 
@@ -104,6 +105,21 @@ pub fn run() {
                 .build(app)?;
 
             app.manage(store);
+
+            // macOS 26.6+ WKWebView 对 tauri:// 自定义协议主帧导航存在回归
+            // （release 白屏，debug 的 http devUrl 正常），改用内嵌 HTTP 服务前端；
+            // frontendDist 指向该地址使 IPC 按本地来源放行（见 frontend_server.rs）。
+            frontend_server::start()?;
+            let url: tauri::Url = format!("http://127.0.0.1:{}/", frontend_server::PORT)
+                .parse()
+                .unwrap();
+            tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
+                .title("红果桌面版")
+                .inner_size(1280.0, 800.0)
+                .min_inner_size(980.0, 620.0)
+                .center()
+                .build()?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

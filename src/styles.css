@@ -174,9 +174,11 @@ input { font-family: inherit; }
 .ep-cell.watched { color: var(--accent); border-color: var(--accent-weak); background: var(--accent-weak); }
 
 /* ---------- 播放页 ---------- */
-.player-page { display: flex; flex-direction: column; height: 100vh; background: #000; }
+/* 必须脱离 .main 滚动容器：overflow 容器内的 <video> 会导致
+   WKWebView 视频合成层失效（有声无图），fixed 定位规避 */
+.player-page { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; background: #000; }
 .video-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
-.video-stage video { width: 100%; height: 100%; outline: none; background: #000; }
+.video-stage video { width: 100%; height: 100%; outline: none; background: transparent; transform: translateZ(0); }
 .player-top {
   position: absolute; top: 0; left: 0; right: 0; z-index: 5;
   padding: 14px 18px; display: flex; align-items: center; gap: 12px;

@@ -11,6 +11,10 @@ default-run = "hongguo-mac"
 name = "hongguo_mac_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# tauri build 以此区分 dev/release 运行时行为（get_app_url、asset 嵌入等）
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -20,9 +24,12 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "stream"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+futures-util = "0.3"
 rusqlite = { version = "0.32", features = ["bundled"] }
+tiny_http = "0.12"
+include_dir = "0.7"
 thiserror = "2"
 
 [profile.release]

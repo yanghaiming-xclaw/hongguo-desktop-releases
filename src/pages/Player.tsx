@@ -84,6 +84,7 @@ export default function Player() {
           updated_at: 0,
         });
       } catch (e) {
+        fetch(`/diag?event=load_error&msg=${encodeURIComponent(String(e))}`).catch(() => {});
         setErr(String(e));
       } finally {
         setLoading(false);
@@ -217,6 +218,7 @@ export default function Player() {
   const onVideoError = () => {
     // 签名 URL 可能过期：重取一次
     const pi = infoRef.current;
+    fetch(`/diag?event=video_error&vid=${pi?.vid || ""}`).catch(() => {});
     if (!pi) return;
     load(pi.ep_index);
   };
@@ -310,8 +312,13 @@ export default function Player() {
       <div className="video-stage" ref={stageRef} style={{ cursor: uiVisible ? "default" : "none" }}>
         {pi && (
           <video
-            ref={videoRef}
-            src={pi.url}
+            ref={(el) => {
+              videoRef.current = el;
+              // 红果 CDN 校验 Referer：本地来源会被 403。视频走本地流代理
+              // /api/stream（Rust 侧无 Referer 拉流转发），poster 仍直连。
+              el?.setAttribute("referrerpolicy", "no-referrer");
+            }}
+            src={`/api/stream?sid=${pi.series_id}&vid=${pi.vid}`}
             poster={pi.poster}
             playsInline
             autoPlay
