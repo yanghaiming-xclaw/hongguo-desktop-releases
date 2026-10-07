@@ -342,3 +342,6 @@ body.player-open { background: transparent !important; }
 /* 临时调试 */
 .video-stage .debug-visible { z-index: 0; }
 .video-stage .debug-overlay { position: absolute; top: 70px; left: 20px; z-index: 9; color: #0f0; font: 16px monospace; background: rgba(0,0,0,0.7); padding: 8px; }
+
+/* 音量滑杆（控制栏内） */
+.volume-slider { width: 90px; accent-color: var(--accent); cursor: pointer; }

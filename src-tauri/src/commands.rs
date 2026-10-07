@@ -157,6 +157,12 @@ pub async fn av_set_muted(player: PlayerState<'_>, muted: bool) -> Result<(), St
 }
 
 #[tauri::command]
+pub async fn av_set_volume(player: PlayerState<'_>, volume: f64) -> Result<(), String> {
+    player.lock().unwrap().set_volume(volume);
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn av_position(player: PlayerState<'_>) -> Result<AvPosition, String> {
     Ok(player.lock().unwrap().position())
 }

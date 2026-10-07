@@ -39,6 +39,11 @@ extern "C" {
 #[link(name = "AVFoundation", kind = "framework")]
 extern "C" {}
 
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGColorCreateGenericRGB(r: f64, g: f64, b: f64, a: f64) -> *mut AnyObject;
+}
+
 pub struct AvPlayer {
     player: *mut AnyObject,
     #[allow(dead_code)]
@@ -94,9 +99,12 @@ unsafe fn create_impl(ns_window: *mut std::ffi::c_void) -> Result<AvPlayer, Stri
 
     let player: *mut AnyObject = msg_send![class!(AVPlayer), new];
 
-    let layer: *mut AnyObject = msg_send![class!(AVPlayerLayer), playerLayerWithPlayer: player];
-    let gravity = NSString::from_str("AVLayerVideoGravityResizeAspect");
-    let _: () = msg_send![layer, setVideoGravity: &*gravity];
+        let layer: *mut AnyObject = msg_send![class!(AVPlayerLayer), playerLayerWithPlayer: player];
+        let gravity = NSString::from_str("AVLayerVideoGravityResizeAspect");
+        let _: () = msg_send![layer, setVideoGravity: &*gravity];
+        // 信箱区（黑边）不透明：避免透明窗口透出桌面
+        let bg = CGColorCreateGenericRGB(0.0, 0.0, 0.0, 1.0);
+        let _: () = msg_send![layer, setBackgroundColor: bg];
 
     let view: *mut AnyObject = msg_send![class!(NSView), alloc];
     let view: *mut AnyObject = msg_send![view, initWithFrame: bounds];
@@ -158,6 +166,13 @@ impl AvPlayer {
     pub fn set_muted(&mut self, muted: bool) {
         unsafe {
             let _: () = msg_send![self.player, setMuted: muted];
+        }
+    }
+
+    pub fn set_volume(&mut self, volume: f64) {
+        unsafe {
+            let v = volume.clamp(0.0, 1.0);
+            let _: () = msg_send![self.player, setVolume: v];
         }
     }
 

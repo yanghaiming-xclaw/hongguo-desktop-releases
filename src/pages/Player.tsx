@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, PlayInfo } from "../api";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -33,12 +34,15 @@ export default function Player() {
   const [epListOpen, setEpListOpen] = useState(true);
 
   const [resumePos, setResumePos] = useState(0); // >0 显示续播提示
-  const [uiVisible, setUiVisible] = useState(true);
+  const [volume, setVolume] = useState(1);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [mouseInside, setMouseInside] = useState(false);
+  const flashUntil = useRef(0); // 交互后短暂显示控制栏
+  const [, setTick] = useState(0);
 
   const infoRef = useRef(info);
   const resumeAtRef = useRef(0);
   const endedFiredRef = useRef(""); // 已触发过 ended 的 vid
-  const hideTimer = useRef<number | null>(null);
   const speedRef = useRef(1);
   useEffect(() => {
     speedRef.current = speed;
@@ -211,17 +215,16 @@ export default function Player() {
     api.avSetRate(sp).catch(() => {});
   };
 
+  // 控制栏可见性：鼠标在窗口内常显；暂停时显示；交互后短暂显示
   const showUi = useCallback(() => {
-    setUiVisible(true);
-    if (hideTimer.current) window.clearTimeout(hideTimer.current);
-    hideTimer.current = window.setTimeout(() => {
-      if (playing) setUiVisible(false);
-    }, 2600);
-  }, [playing]);
-
+    flashUntil.current = Date.now() + 1800;
+    setTick((t) => t + 1);
+  }, []);
+  const uiVisible = !playing || mouseInside || speedOpen || Date.now() < flashUntil.current;
   useEffect(() => {
-    showUi();
-  }, [showUi]);
+    const t = window.setInterval(() => setTick((x) => x + 1), 1000);
+    return () => window.clearInterval(t);
+  }, []);
 
   const togglePlay = useCallback(() => {
     if (playing) {
@@ -232,6 +235,17 @@ export default function Player() {
     }
     showUi();
   }, [playing, saveProgress, showUi]);
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      const w = getCurrentWindow();
+      const cur = await w.isFullscreen();
+      await w.setFullscreen(!cur);
+      setFullscreen(!cur);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   // 键盘
   useEffect(() => {
@@ -299,6 +313,10 @@ export default function Player() {
         onClick={togglePlay}
         onDoubleClick={() => setEpListOpen((s) => !s)}
         onMouseMove={showUi}
+        onMouseEnter={() => setMouseInside(true)}
+        onMouseLeave={() => {
+          setMouseInside(false);
+        }}
       >
         {/* 视频画面由原生 AVPlayerLayer 呈现（webview 此处透明） */}
 
@@ -448,6 +466,35 @@ export default function Player() {
               title="静音"
             >
               {muted ? "🔇" : "🔊"}
+            </button>
+            <input
+              className="volume-slider"
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={muted ? 0 : volume}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                setVolume(v);
+                api.avSetVolume(v).catch(() => {});
+                if (v > 0 && muted) {
+                  setMuted(false);
+                  api.avSetMuted(false).catch(() => {});
+                }
+              }}
+              title="音量"
+            />
+            <button
+              className={"ctrl-btn" + (fullscreen ? " on" : "")}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleFullscreen();
+              }}
+              title="全屏播放"
+            >
+              ⛶
             </button>
             <button
               className={"ctrl-btn" + (epListOpen ? " on" : "")}

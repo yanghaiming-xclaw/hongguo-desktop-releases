@@ -160,6 +160,7 @@ pub fn run() {
             commands::av_seek,
             commands::av_set_rate,
             commands::av_set_muted,
+            commands::av_set_volume,
             commands::av_position,
         ])
         .on_window_event(|window, event| {

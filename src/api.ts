@@ -160,6 +160,7 @@ export const api = {
   avSeek: (seconds: number) => invoke<void>("av_seek", { seconds }),
   avSetRate: (rate: number) => invoke<void>("av_set_rate", { rate }),
   avSetMuted: (muted: boolean) => invoke<void>("av_set_muted", { muted }),
+  avSetVolume: (volume: number) => invoke<void>("av_set_volume", { volume }),
   avPosition: () => invoke<AvPosition>("av_position"),
 };
 
