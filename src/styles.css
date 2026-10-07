@@ -345,3 +345,7 @@ body.player-open { background: transparent !important; }
 
 /* 音量滑杆（控制栏内） */
 .volume-slider { width: 90px; accent-color: var(--accent); cursor: pointer; }
+
+/* 免费试看范围外的锁定集 */
+.ep-cell.locked, .ep-list .ep.locked { opacity: 0.45; }
+.ep-list .ep.locked { font-size: 11px; }

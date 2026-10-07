@@ -66,7 +66,7 @@ export default function History() {
               <div
                 key={h.series_id}
                 className="history-item"
-                onClick={() => nav(`/player/${h.series_id}?vid=${h.vid}`)}
+                onClick={() => nav(`/player/${h.series_id}?vid=${h.vid}&ep=${h.ep_index}`)}
               >
                 <img className="cover" src={h.cover} alt={h.title} />
                 <div className="info">

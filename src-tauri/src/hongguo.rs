@@ -126,6 +126,8 @@ pub struct Detail {
     pub rank_label: String,
     pub pay_type: i64,
     pub episode_cnt: i64,
+    /// 网页版未登录可免费试看的集数（超出部分播放页 404）
+    pub accessible_episode_cnt: i64,
     pub vid_list: Vec<String>,
     pub reviews: Vec<Review>,
 }
@@ -136,6 +138,8 @@ pub struct PlayInfo {
     pub vid: String,
     /// 1 起的集序号
     pub ep_index: i64,
+    /// 网页版未登录可免费试看的集数
+    pub accessible_episode_cnt: i64,
     pub vid_list: Vec<String>,
     pub title: String,
     pub url: String,
@@ -505,6 +509,10 @@ impl Hongguo {
         }
         Ok(Detail {
             episode_cnt: i64_of(&sd, &["episode_cnt"]),
+            accessible_episode_cnt: {
+                let a = i64_of(&sd, &["accessible_episode_cnt"]);
+                if a > 0 { a } else { i64_of(&sd, &["episode_cnt"]) }
+            },
             pay_type: i64_of(&sd, &["pay_type"]),
             vid_list: card.vid_list.clone(),
             card,
@@ -547,7 +555,17 @@ impl Hongguo {
             Err(Error::Http(e)) if e.status() == Some(reqwest::StatusCode::NOT_FOUND) => {
                 // vid 仍失效（如详情缓存差异）：强制用当前列表的集 vid 重试一次
                 vid = list[(ep_index - 1).clamp(0, list.len() as i64 - 1) as usize].clone();
-                fetch_page(series_id, &vid).await?
+                match fetch_page(series_id, &vid).await {
+                    Ok(d) => d,
+                    Err(Error::Http(e2)) if e2.status() == Some(reqwest::StatusCode::NOT_FOUND) => {
+                        // 当前 vid 也 404：极可能是网页版免费试看限制（未登录超出 accessible 集数）
+                        return Err(Error::Other(format!(
+                            "第 {ep_index} 集超出网页版免费试看范围（该剂数据标记可看 {accessible} 集）。后续集需登录红果 App 账号观看，非官方 Mac 版暂不支持登录",
+                            accessible = det.accessible_episode_cnt
+                        )));
+                    }
+                    Err(e2) => return Err(e2),
+                }
             }
             Err(e) => return Err(e),
         };
@@ -562,6 +580,7 @@ impl Hongguo {
             series_id: series_id.to_string(),
             vid,
             ep_index,
+            accessible_episode_cnt: det.accessible_episode_cnt,
             vid_list: list,
             title: det.card.title,
             url,

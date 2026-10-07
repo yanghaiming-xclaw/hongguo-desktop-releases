@@ -79,6 +79,8 @@ export interface Detail {
   rank_label: string;
   pay_type: number;
   episode_cnt: number;
+  /** 网页版未登录可免费试看的集数 */
+  accessible_episode_cnt: number;
   vid_list: string[];
   reviews: Review[];
 }
@@ -87,6 +89,8 @@ export interface PlayInfo {
   series_id: string;
   vid: string;
   ep_index: number;
+  /** 网页版未登录可免费试看的集数 */
+  accessible_episode_cnt: number;
   vid_list: string[];
   title: string;
   url: string;

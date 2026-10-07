@@ -544,10 +544,11 @@ export default function Player() {
             {pi.vid_list.map((vid, i) => (
               <div
                 key={vid}
-                className={"ep" + (i + 1 === pi.ep_index ? " sel" : "")}
+                className={"ep" + (i + 1 === pi.ep_index ? " sel" : "") + (i + 1 > pi.accessible_episode_cnt ? " locked" : "")}
+                title={i + 1 > pi.accessible_episode_cnt ? "需登录红果 App 观看" : ""}
                 onClick={() => gotoEp(i + 1)}
               >
-                {i + 1}
+                {i + 1 > pi.accessible_episode_cnt ? "🔒" : i + 1}
               </div>
             ))}
           </div>
