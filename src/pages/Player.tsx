@@ -545,10 +545,10 @@ export default function Player() {
               <div
                 key={vid}
                 className={"ep" + (i + 1 === pi.ep_index ? " sel" : "") + (i + 1 > pi.accessible_episode_cnt ? " locked" : "")}
-                title={i + 1 > pi.accessible_episode_cnt ? "需登录红果 App 观看" : ""}
+                title={i + 1 > pi.accessible_episode_cnt ? "App 源播放（需模拟器环境运行）" : ""}
                 onClick={() => gotoEp(i + 1)}
               >
-                {i + 1 > pi.accessible_episode_cnt ? "🔒" : i + 1}
+                {i + 1}
               </div>
             ))}
           </div>

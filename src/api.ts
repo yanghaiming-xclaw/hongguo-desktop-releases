@@ -91,6 +91,8 @@ export interface PlayInfo {
   ep_index: number;
   /** 网页版未登录可免费试看的集数 */
   accessible_episode_cnt: number;
+  /** true = 走 App 源解密串流（/app/stream） */
+  source_app: boolean;
   vid_list: string[];
   title: string;
   url: string;

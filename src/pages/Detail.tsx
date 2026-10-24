@@ -135,10 +135,10 @@ export default function Detail() {
               <div
                 key={vid}
                 className={"ep-cell" + (i + 1 === ep ? " watched" : "") + (i + 1 > d.accessible_episode_cnt ? " locked" : "")}
-                title={i + 1 > d.accessible_episode_cnt ? "需登录红果 App 观看（网页版仅免费试看前 " + d.accessible_episode_cnt + " 集）" : ""}
+                title={i + 1 > d.accessible_episode_cnt ? "App 源播放（需模拟器环境运行）" : ""}
                 onClick={() => nav(`/player/${d.card.series_id}?ep=${i + 1}`)}
               >
-                {i + 1 > d.accessible_episode_cnt ? "🔒" : i + 1}
+                {i + 1}
               </div>
             ))}
           </div>

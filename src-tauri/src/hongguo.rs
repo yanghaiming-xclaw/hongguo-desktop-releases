@@ -140,6 +140,8 @@ pub struct PlayInfo {
     pub ep_index: i64,
     /// 网页版未登录可免费试看的集数
     pub accessible_episode_cnt: i64,
+    /// true = 该集走 App 源解密串流（url 为空，前端用 /app/stream）
+    pub source_app: bool,
     pub vid_list: Vec<String>,
     pub title: String,
     pub url: String,
@@ -530,6 +532,9 @@ impl Hongguo {
     pub async fn play_info(&self, series_id: &str, vid: Option<&str>, ep: Option<i64>) -> Result<PlayInfo> {
         let det = self.detail(series_id).await?;
         let list = det.vid_list;
+        let acc = det.accessible_episode_cnt;
+        let dtitle = det.card.title.clone();
+        let dcover = det.card.cover.clone();
         if list.is_empty() {
             return Err(Error::MissingData("剧集列表为空".into()));
         }
@@ -550,19 +555,43 @@ impl Hongguo {
             let path = format!("/player/{sid}/{vid}");
             async move { self.router_data(&path).await }
         };
+        // App 源回退：超出网页版免费试看范围的集，播放页 404 或软 404（200 缺数据）
+        let app_fallback = |vid: String, ep_index: i64, list: Vec<String>| {
+            Ok(PlayInfo {
+                series_id: series_id.to_string(),
+                vid,
+                ep_index,
+                accessible_episode_cnt: acc,
+                source_app: true,
+                vid_list: list,
+                title: dtitle.clone(),
+                url: String::new(),
+                poster: dcover.clone(),
+                duration_ms: 0.0,
+                width: 0,
+                height: 0,
+            })
+        };
         let data = match fetch_page(series_id, &vid).await {
-            Ok(d) => d,
+            Ok(d) => {
+                if page_with(&d, &["video_player_info"]).is_none() {
+                    // 软 404：页面在但没有播放数据
+                    return app_fallback(vid, ep_index, list);
+                }
+                d
+            }
             Err(Error::Http(e)) if e.status() == Some(reqwest::StatusCode::NOT_FOUND) => {
-                // vid 仍失效（如详情缓存差异）：强制用当前列表的集 vid 重试一次
+                // vid 可能被站点轮换：用当前列表的集 vid 重试一次
                 vid = list[(ep_index - 1).clamp(0, list.len() as i64 - 1) as usize].clone();
                 match fetch_page(series_id, &vid).await {
-                    Ok(d) => d,
+                    Ok(d) => {
+                        if page_with(&d, &["video_player_info"]).is_none() {
+                            return app_fallback(vid, ep_index, list);
+                        }
+                        d
+                    }
                     Err(Error::Http(e2)) if e2.status() == Some(reqwest::StatusCode::NOT_FOUND) => {
-                        // 当前 vid 也 404：极可能是网页版免费试看限制（未登录超出 accessible 集数）
-                        return Err(Error::Other(format!(
-                            "第 {ep_index} 集超出网页版免费试看范围（该剂数据标记可看 {accessible} 集）。后续集需登录红果 App 账号观看，非官方 Mac 版暂不支持登录",
-                            accessible = det.accessible_episode_cnt
-                        )));
+                        return app_fallback(vid, ep_index, list);
                     }
                     Err(e2) => return Err(e2),
                 }
@@ -581,6 +610,7 @@ impl Hongguo {
             vid,
             ep_index,
             accessible_episode_cnt: det.accessible_episode_cnt,
+            source_app: false,
             vid_list: list,
             title: det.card.title,
             url,

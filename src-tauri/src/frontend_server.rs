@@ -271,8 +271,91 @@ fn mime_of(path: &str) -> &'static str {
     }
 }
 
+/// App API sidecar（zhangbaio server.py :8000）反向代理：/app/* → :8000/*。
+/// 带本地密钥；透传 Range（串流端点 FileResponse 支持 206 拖动）。
+fn serve_app_proxy(mut req: tiny_http::Request) {
+    let url = req.url().to_string();
+    let sub = url.trim_start_matches("/app");
+    let range = req
+        .headers()
+        .iter()
+        .find(|h| h.field.equiv("Range"))
+        .map(|h| h.value.as_str().to_string());
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(600))
+        .build();
+    let client = match client {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = req.respond(
+                tiny_http::Response::from_string(format!("{{\"error\":\"代理初始化失败: {e}\"}}"))
+                    .with_status_code(502),
+            );
+            return;
+        }
+    };
+    let mut rb = client
+        .get(format!("http://127.0.0.1:8000{sub}"))
+        .header("X-API-Key", "hongguo-mac-local");
+    if let Some(r) = &range {
+        rb = rb.header("Range", r);
+    }
+    match rb.send() {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let mut headers = vec![];
+            for key in ["content-type", "content-length", "content-range", "accept-ranges"] {
+                if let Some(v) = resp.headers().get(key).and_then(|v| v.to_str().ok()) {
+                    if let Ok(h) = tiny_http::Header::from_bytes(key.as_bytes(), v.as_bytes()) {
+                        headers.push(h);
+                    }
+                }
+            }
+            match resp.bytes() {
+                Ok(bytes) => {
+                    let blen = bytes.len();
+                    let response = tiny_http::Response::new(
+                        tiny_http::StatusCode(status),
+                        headers,
+                        std::io::Cursor::new(bytes),
+                        Some(blen),
+                        None,
+                    );
+                    let _ = req.respond(response);
+                }
+                Err(e) => {
+                    let _ = req.respond(
+                        tiny_http::Response::from_string(format!("{{\"error\":\"读取上游失败: {e}\"}}"))
+                            .with_status_code(502),
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            let _ = req.respond(
+                tiny_http::Response::from_string(format!(
+                    "{{\"error\":\"App 源未就绪（需模拟器+签名服务+API 服务运行中）: {e}\"}}"
+                ))
+                .with_status_code(503)
+                .with_header(
+                    tiny_http::Header::from_bytes(
+                        &b"Content-Type"[..],
+                        &b"application/json"[..],
+                    )
+                    .unwrap(),
+                ),
+            );
+        }
+    }
+}
+
 fn serve_one(req: tiny_http::Request) {
     let raw_path = req.url().split(['?', '#']).next().unwrap_or("/").to_string();
+    if raw_path.starts_with("/app/") {
+        serve_app_proxy(req);
+        return;
+    }
     if raw_path == "/api/stream" {
         serve_stream(req);
         return;
