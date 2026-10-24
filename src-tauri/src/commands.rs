@@ -167,6 +167,38 @@ pub async fn av_position(player: PlayerState<'_>) -> Result<AvPosition, String> 
     Ok(player.lock().unwrap().position())
 }
 
+/// App 源预热：触发 sidecar 下载+解密+缓存（首次约 30-60 秒），完成后串流秒回。
+/// path 形如 /stream?series_id=xxx&ep=150（不含 /app 前缀）。
+#[tauri::command]
+pub async fn app_prefetch(path: String) -> Result<(), String> {
+    if !path.starts_with("/stream") {
+        return Err("非法路径".into());
+    }
+    let url = format!("http://127.0.0.1:8000{path}");
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(600))
+            .build()
+            .map_err(|e| e.to_string())?;
+        let resp = client
+            .get(&url)
+            .header("X-API-Key", "hongguo-mac-local")
+            .header("Range", "bytes=0-1023")
+            .send()
+            .map_err(|e| format!("App 源连接失败（后端是否已启动？）: {e}"))?;
+        let status = resp.status().as_u16();
+        let body = resp.bytes().map_err(|e| e.to_string())?;
+        if status == 206 || status == 200 {
+            Ok(())
+        } else {
+            Err(format!("App 源返回 {status}: {}", String::from_utf8_lossy(&body)))
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    result
+}
+
 // ---------- 老板键 / 应用级 ----------
 
 #[tauri::command]

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import { api, PlayInfo } from "../api";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -34,6 +35,7 @@ export default function Player() {
   const [epListOpen, setEpListOpen] = useState(true);
 
   const [resumePos, setResumePos] = useState(0); // >0 显示续播提示
+  const [prepMsg, setPrepMsg] = useState("");
   const [volume, setVolume] = useState(1);
   const [fullscreen, setFullscreen] = useState(false);
   const [mouseInside, setMouseInside] = useState(false);
@@ -64,8 +66,28 @@ export default function Player() {
       try {
         const pi = await api.playInfo(seriesId, vid, ep);
         setInfo(pi);
-        // 原生播放器加载（404/旧 vid 已在 Rust 侧回退解决）
-        await api.avLoad(pi.url);
+        if (pi.source_app || pi.ep_index > pi.accessible_episode_cnt) {
+          // App 源：先触发 sidecar 下载+解密+缓存（首次约 1 分钟），再交给播放器
+          setPrepMsg("App 源准备中：正在下载并解密该集（首次约 1 分钟）…");
+          try {
+            await invoke("app_prefetch", {
+              path: `/stream?series_id=${pi.series_id}&ep=${pi.ep_index}`,
+            });
+          } catch (pe) {
+            setErr(String(pe));
+            setPrepMsg("");
+            setLoading(false);
+            return;
+          }
+          setPrepMsg("");
+          // App 源同样用原生 AVPlayer 播本地代理串流地址
+          const local = `/app/stream?series_id=${pi.series_id}&ep=${pi.ep_index}`;
+          await api.avLoad(`http://127.0.0.1:12815${local}`);
+        } else {
+          // 原生播放器加载（404/旧 vid 已在 Rust 侧回退解决）
+          await api.avLoad(pi.url);
+        }
+
         // 查历史进度（仅同一集时提示续播）
         try {
           const h = (await api.historyList()).find((x) => x.series_id === seriesId);
@@ -513,7 +535,7 @@ export default function Player() {
         {loading && (
           <div className="loading" style={{ position: "absolute", color: "#ddd" }}>
             <div className="spin" />
-            正在获取播放地址…
+            {prepMsg || "正在获取播放地址…"}
           </div>
         )}
         {err && !loading && (
