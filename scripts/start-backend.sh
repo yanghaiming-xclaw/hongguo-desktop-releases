@@ -34,6 +34,9 @@ echo "== 3/4 红果 App =="
 }
 echo "  app pid: $("$ADB" shell pidof com.phoenix.read | tr -d '\r')"
 
+echo "== 3.5/4 decutil ffmpeg 回退补丁 =="
+REPO="$REPO" python3 "$ROOT/scripts/patch-decutil.py"
+
 echo "== 4/4 签名服务(:9099) + API 服务(:8000) =="
 if ! lsof -nP -iTCP:9099 -sTCP:LISTEN > /dev/null 2>&1; then
   (cd "$REPO" && ADB="$ADB" ADB_DEVICE=emulator-5554 SIGN_PORT=9099 \
