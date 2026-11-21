@@ -187,14 +187,20 @@ pub async fn av_set_layer_rect(
 }
 
 #[tauri::command]
-pub async fn av_pip_toggle(app: tauri::AppHandle, player: PlayerState<'_>) -> Result<Option<bool>, String> {
+pub async fn av_pip_toggle(
+    app: tauri::AppHandle,
+    player: PlayerState<'_>,
+) -> Result<Option<bool>, String> {
     let player = player.inner().clone();
+    let out = Arc::new(Mutex::new(None::<Result<Option<bool>, String>>));
+    let out2 = Arc::clone(&out);
     app.run_on_main_thread(move || {
-        let _ = player.lock().unwrap().pip_toggle();
+        let r = player.lock().unwrap().pip_toggle();
+        *out2.lock().unwrap() = Some(r);
     })
     .map_err(|e| e.to_string())?;
-    // 切换状态由前端下次轮询/交互体现；PiP 浮窗独立于主窗口
-    Ok(None)
+    let v = out.lock().unwrap().clone();
+    v.unwrap_or_else(|| Err("PiP 调用未完成".into()))
 }
 
 /// App 源预热：触发 sidecar 下载+解密+缓存（首次约 30-60 秒），完成后串流秒回。

@@ -562,8 +562,14 @@ export default function Player() {
               className={"ctrl-btn" + (pipOn ? " on" : "")}
               onClick={(e) => {
                 e.stopPropagation();
-                api.avPipToggle().catch(() => {});
-                setPipOn((v) => !v);
+                api
+                  .avPipToggle()
+                  .then((on) => {
+                    if (on != null) setPipOn(on);
+                  })
+                  .catch((err) => {
+                    setErr(String(err));
+                  });
               }}
               title="最小浮窗播放（画中画）"
             >

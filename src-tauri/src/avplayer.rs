@@ -6,7 +6,9 @@
 //! 控制（加载/播放/暂停/seek/倍速/静音）经 Tauri IPC 命令驱动；
 //! AVPlayer 本身线程安全，属性读写可跨线程（CALayer 相关仅在创建时于主线程设置）。
 
+use objc2::exception::Exception;
 use objc2::runtime::AnyObject;
+use std::panic::AssertUnwindSafe;
 use objc2::{class, msg_send};
 use objc2_foundation::{NSRect, NSString};
 use std::sync::Mutex;
@@ -125,6 +127,20 @@ unsafe fn create_impl(ns_window: *mut std::ffi::c_void) -> Result<AvPlayer, Stri
     Ok(AvPlayer { player, view, layer, pip: std::ptr::null_mut() })
 }
 
+fn exc_reason(e: &objc2::exception::Exception) -> String {
+    unsafe {
+        let reason: *mut AnyObject = msg_send![e, reason];
+        if reason.is_null() {
+            return "未知异常".into();
+        }
+        let s: *const std::ffi::c_char = msg_send![reason, UTF8String];
+        if s.is_null() {
+            return "未知异常".into();
+        }
+        std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned()
+    }
+}
+
 fn nsurl(s: &str) -> *mut AnyObject {
     unsafe {
         let ns = NSString::from_str(s);
@@ -192,32 +208,44 @@ impl AvPlayer {
         }
     }
 
-    /// 画中画开关。返回切换后的状态；None = PiP 不可用。
-    pub fn pip_toggle(&mut self) -> Option<bool> {
-        unsafe {
-            if self.pip.is_null() {
-                let c: *mut AnyObject = msg_send![
-                    class!(AVPictureInPictureController),
-                    pictureInPictureControllerWithPlayerLayer: self.layer
-                ];
-                if c.is_null() {
-                    return None;
-                }
-                let _: () = msg_send![c, setRequiresFullscreenControl: false];
-                self.pip = c;
+    /// 画中画开关。返回切换后的状态；Err = 不可用原因（ObjC 异常已捕获，不崩溃）。
+    pub fn pip_toggle(&mut self) -> Result<Option<bool>, String> {
+        match unsafe {
+            objc2::exception::catch(std::panic::AssertUnwindSafe(|| self.pip_toggle_impl()))
+        } {
+            Ok(r) => r,
+            Err(Some(exc)) => Err(format!("PiP ObjC 异常: {}", exc_reason(&exc))),
+            Err(None) => Err("PiP 未知异常".into()),
+        }
+    }
+
+    unsafe fn pip_toggle_impl(&mut self) -> Result<Option<bool>, String> {
+        if self.pip.is_null() {
+            let supported: bool = msg_send![class!(AVPictureInPictureController), isPictureInPictureSupported];
+            if !supported {
+                return Err("系统不支持画中画".into());
             }
-            let possible: bool = msg_send![self.pip, isPictureInPicturePossible];
-            if !possible {
-                return None;
+            let c: *mut AnyObject = msg_send![
+                class!(AVPictureInPictureController),
+                pictureInPictureControllerWithPlayerLayer: self.layer
+            ];
+            if c.is_null() {
+                return Err("PiP 控制器创建失败".into());
             }
-            let active: bool = msg_send![self.pip, isPictureInPictureActive];
-            if active {
-                let _: () = msg_send![self.pip, stopPictureInPicture];
-                Some(false)
-            } else {
-                let _: () = msg_send![self.pip, startPictureInPicture];
-                Some(true)
-            }
+            let _: () = msg_send![c, setRequiresFullscreenControl: false];
+            self.pip = c;
+        }
+        let possible: bool = msg_send![self.pip, isPictureInPicturePossible];
+        if !possible {
+            return Err("画中画当前不可用（需视频已就绪且窗口可见）".into());
+        }
+        let active: bool = msg_send![self.pip, isPictureInPictureActive];
+        if active {
+            let _: () = msg_send![self.pip, stopPictureInPicture];
+            Ok(Some(false))
+        } else {
+            let _: () = msg_send![self.pip, startPictureInPicture];
+            Ok(Some(true))
         }
     }
 
