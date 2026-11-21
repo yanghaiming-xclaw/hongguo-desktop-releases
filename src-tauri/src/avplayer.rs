@@ -44,10 +44,15 @@ extern "C" {
     fn CGColorCreateGenericRGB(r: f64, g: f64, b: f64, a: f64) -> *mut AnyObject;
 }
 
+#[link(name = "AVKit", kind = "framework")]
+extern "C" {}
+
 pub struct AvPlayer {
     player: *mut AnyObject,
     #[allow(dead_code)]
     view: *mut AnyObject,
+    layer: *mut AnyObject,
+    pip: *mut AnyObject,
 }
 
 unsafe impl Send for AvPlayer {}
@@ -117,7 +122,7 @@ unsafe fn create_impl(ns_window: *mut std::ffi::c_void) -> Result<AvPlayer, Stri
     let nil: *mut AnyObject = std::ptr::null_mut();
     let _: () = msg_send![content, addSubview: view, positioned: -1i64, relativeTo: nil];
 
-    Ok(AvPlayer { player, view })
+    Ok(AvPlayer { player, view, layer, pip: std::ptr::null_mut() })
 }
 
 fn nsurl(s: &str) -> *mut AnyObject {
@@ -173,6 +178,46 @@ impl AvPlayer {
         unsafe {
             let v = volume.clamp(0.0, 1.0);
             let _: () = msg_send![self.player, setVolume: v];
+        }
+    }
+
+    /// 设置 AVPlayerLayer 在窗口内的几何（主线程调用）。y 自窗口内容区底部起算。
+    pub fn set_layer_frame(&self, x: f64, y: f64, w: f64, h: f64) {
+        unsafe {
+            let frame = NSRect::new(
+                objc2_foundation::NSPoint::new(x, y),
+                objc2_foundation::NSSize::new(w, h),
+            );
+            let _: () = msg_send![self.layer, setFrame: frame];
+        }
+    }
+
+    /// 画中画开关。返回切换后的状态；None = PiP 不可用。
+    pub fn pip_toggle(&mut self) -> Option<bool> {
+        unsafe {
+            if self.pip.is_null() {
+                let c: *mut AnyObject = msg_send![
+                    class!(AVPictureInPictureController),
+                    pictureInPictureControllerWithPlayerLayer: self.layer
+                ];
+                if c.is_null() {
+                    return None;
+                }
+                let _: () = msg_send![c, setRequiresFullscreenControl: false];
+                self.pip = c;
+            }
+            let possible: bool = msg_send![self.pip, isPictureInPicturePossible];
+            if !possible {
+                return None;
+            }
+            let active: bool = msg_send![self.pip, isPictureInPictureActive];
+            if active {
+                let _: () = msg_send![self.pip, stopPictureInPicture];
+                Some(false)
+            } else {
+                let _: () = msg_send![self.pip, startPictureInPicture];
+                Some(true)
+            }
         }
     }
 

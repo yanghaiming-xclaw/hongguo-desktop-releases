@@ -3,10 +3,10 @@
 use crate::avplayer::{AvLoadInfo, AvPlayer, AvPosition};
 use crate::hongguo::{self, Hongguo};
 use crate::store::{FavoriteItem, HistoryItem, Store};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::State;
 
-type PlayerState<'a> = State<'a, Mutex<AvPlayer>>;
+type PlayerState<'a> = State<'a, Arc<Mutex<AvPlayer>>>;
 
 #[tauri::command]
 pub async fn home_feed(hg: State<'_, Hongguo>) -> Result<hongguo::HomeFeed, String> {
@@ -165,6 +165,36 @@ pub async fn av_set_volume(player: PlayerState<'_>, volume: f64) -> Result<(), S
 #[tauri::command]
 pub async fn av_position(player: PlayerState<'_>) -> Result<AvPosition, String> {
     Ok(player.lock().unwrap().position())
+}
+
+/// 层几何同步：前端 ResizeObserver 发送播放区矩形（视口坐标，y 自顶部起）。
+#[tauri::command]
+pub async fn av_set_layer_rect(
+    app: tauri::AppHandle,
+    player: PlayerState<'_>,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    viewport_h: f64,
+) -> Result<(), String> {
+    let layer_frame_y = viewport_h - y - h; // 顶部坐标 → 底部坐标
+    let player = player.inner().clone();
+    app.run_on_main_thread(move || {
+        player.lock().unwrap().set_layer_frame(x, layer_frame_y, w, h);
+    })
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn av_pip_toggle(app: tauri::AppHandle, player: PlayerState<'_>) -> Result<Option<bool>, String> {
+    let player = player.inner().clone();
+    app.run_on_main_thread(move || {
+        let _ = player.lock().unwrap().pip_toggle();
+    })
+    .map_err(|e| e.to_string())?;
+    // 切换状态由前端下次轮询/交互体现；PiP 浮窗独立于主窗口
+    Ok(None)
 }
 
 /// App 源预热：触发 sidecar 下载+解密+缓存（首次约 30-60 秒），完成后串流秒回。

@@ -38,6 +38,7 @@ export default function Player() {
   const [prepMsg, setPrepMsg] = useState("");
   const [volume, setVolume] = useState(1);
   const [fullscreen, setFullscreen] = useState(false);
+  const [pipOn, setPipOn] = useState(false);
   const [mouseInside, setMouseInside] = useState(false);
   const flashUntil = useRef(0); // 交互后短暂显示控制栏
   const [, setTick] = useState(0);
@@ -314,6 +315,45 @@ export default function Player() {
     };
   }, []);
 
+  const pi = info;
+  // 选集分组折叠状态：自动展开当前集所在组
+  const [openGroups, setOpenGroups] = useState<Set<number>>(new Set([0]));
+  const EP_GROUP = 50;
+  useEffect(() => {
+    if (!pi) return;
+    const g = Math.floor((pi.ep_index - 1) / EP_GROUP);
+    setOpenGroups((s0) => {
+      if (s0.has(g)) return s0;
+      const n = new Set(s0);
+      n.add(g);
+      return n;
+    });
+  }, [pi?.ep_index]);
+
+  // 原生视频层几何同步：跟随播放区矩形（窗口缩放/选集开合均自适应），视频始终居中
+  const syncLayerRect = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const r = stage.getBoundingClientRect();
+    api
+      .avSetLayerRect(r.x, r.y, r.width, r.height, window.innerHeight)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!pi) return;
+    syncLayerRect();
+    const stage = stageRef.current;
+    if (!stage) return;
+    const ro = new ResizeObserver(syncLayerRect);
+    ro.observe(stage);
+    window.addEventListener("resize", syncLayerRect);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", syncLayerRect);
+    };
+  }, [pi, epListOpen, syncLayerRect]);
+
   const seekTo = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!dur) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -323,7 +363,6 @@ export default function Player() {
     showUi();
   };
 
-  const pi = info;
   const epTotal = pi?.vid_list.length || 0;
 
   return (
@@ -432,6 +471,17 @@ export default function Player() {
               className="ctrl-btn"
               onClick={(e) => {
                 e.stopPropagation();
+                api.avSeek(Math.max(0, curRef.current - 15)).catch(() => {});
+                showUi();
+              }}
+              title="后退 15 秒"
+            >
+              ⏪
+            </button>
+            <button
+              className="ctrl-btn"
+              onClick={(e) => {
+                e.stopPropagation();
                 gotoEp((pi?.ep_index || 1) - 1);
               }}
               disabled={!pi || pi.ep_index <= 1}
@@ -449,6 +499,17 @@ export default function Player() {
               title="下一集"
             >
               ⏭
+            </button>
+            <button
+              className="ctrl-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                api.avSeek(curRef.current + 15).catch(() => {});
+                showUi();
+              }}
+              title="前进 15 秒"
+            >
+              ⏩
             </button>
             <span className="time">
               {fmt(cur)} / {fmt(dur)}
@@ -519,6 +580,17 @@ export default function Player() {
               ⛶
             </button>
             <button
+              className={"ctrl-btn" + (pipOn ? " on" : "")}
+              onClick={(e) => {
+                e.stopPropagation();
+                api.avPipToggle().catch(() => {});
+                setPipOn((v) => !v);
+              }}
+              title="最小浮窗播放（画中画）"
+            >
+              ⧉
+            </button>
+            <button
               className={"ctrl-btn" + (epListOpen ? " on" : "")}
               onClick={(e) => {
                 e.stopPropagation();
@@ -556,23 +628,53 @@ export default function Player() {
         )}
       </div>
 
-      {/* 选集侧栏 */}
+      {/* 选集侧栏：分组折叠（长剧友好） */}
       {epListOpen && pi && (
         <div className="ep-sidebar" onClick={(e) => e.stopPropagation()}>
           <div className="head">
             {pi.title}（共 {epTotal} 集）
           </div>
-          <div className="ep-list">
-            {pi.vid_list.map((vid, i) => (
-              <div
-                key={vid}
-                className={"ep" + (i + 1 === pi.ep_index ? " sel" : "") + (i + 1 > pi.accessible_episode_cnt ? " locked" : "")}
-                title={i + 1 > pi.accessible_episode_cnt ? "App 源播放（需模拟器环境运行）" : ""}
-                onClick={() => gotoEp(i + 1)}
-              >
-                {i + 1}
-              </div>
-            ))}
+          <div className="ep-groups">
+            {Array.from({ length: Math.ceil(epTotal / EP_GROUP) }, (_, g) => {
+              const start = g * EP_GROUP + 1;
+              const end = Math.min((g + 1) * EP_GROUP, epTotal);
+              const open = openGroups.has(g);
+              const items = pi.vid_list.slice(g * EP_GROUP, end).map((vid, k) => ({
+                vid,
+                ep: g * EP_GROUP + k + 1,
+              }));
+              return (
+                <div key={g} className="ep-group">
+                  <button
+                    className="ep-group-head"
+                    onClick={() =>
+                      setOpenGroups((s0) => {
+                        const n = new Set(s0);
+                        if (n.has(g)) n.delete(g);
+                        else n.add(g);
+                        return n;
+                      })
+                    }
+                  >
+                    {start}–{end} 集 {open ? "▾" : "▸"}
+                  </button>
+                  {open && (
+                    <div className="ep-list">
+                      {items.map(({ vid, ep }) => (
+                        <div
+                          key={vid}
+                          className={"ep" + (ep === pi.ep_index ? " sel" : "") + (ep > pi.accessible_episode_cnt ? " locked" : "")}
+                          title={ep > pi.accessible_episode_cnt ? "App 源播放（需模拟器环境运行）" : ""}
+                          onClick={() => gotoEp(ep)}
+                        >
+                          {ep}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

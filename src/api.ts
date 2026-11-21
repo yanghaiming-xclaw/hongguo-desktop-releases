@@ -168,6 +168,9 @@ export const api = {
   avSetMuted: (muted: boolean) => invoke<void>("av_set_muted", { muted }),
   avSetVolume: (volume: number) => invoke<void>("av_set_volume", { volume }),
   avPosition: () => invoke<AvPosition>("av_position"),
+  avSetLayerRect: (x: number, y: number, w: number, h: number, viewportH: number) =>
+    invoke<void>("av_set_layer_rect", { x, y, w, h, viewportH }),
+  avPipToggle: () => invoke<void>("av_pip_toggle"),
 };
 
 export const APP_VERSION = "1.0.4";

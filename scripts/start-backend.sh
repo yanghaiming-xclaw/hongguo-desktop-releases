@@ -34,6 +34,9 @@ echo "== 3/4 红果 App =="
 }
 echo "  app pid: $("$ADB" shell pidof com.phoenix.read | tr -d '\r')"
 
+echo "== 3.4/4 server.py 编码择优补丁 =="
+REPO="$REPO" python3 "$ROOT/scripts/patch-server-codec.py"
+
 echo "== 3.5/4 decutil ffmpeg 回退补丁 =="
 REPO="$REPO" python3 "$ROOT/scripts/patch-decutil.py"
 

@@ -146,7 +146,7 @@ pub fn run() {
             let win = app.get_webview_window("main").ok_or("主窗口缺失")?;
             let ns = win.ns_window().map_err(|e| format!("获取 NSWindow 失败: {e}"))?;
             let player = avplayer::create_under_webview(ns)?;
-            app.manage(player);
+            app.manage(std::sync::Arc::new(player));
 
             Ok(())
         })
@@ -176,6 +176,8 @@ pub fn run() {
             commands::av_set_muted,
             commands::av_set_volume,
             commands::av_position,
+            commands::av_set_layer_rect,
+            commands::av_pip_toggle,
             commands::app_prefetch,
         ])
         .on_window_event(|window, event| {

@@ -349,3 +349,13 @@ body.player-open { background: transparent !important; }
 /* 免费试看范围外的锁定集 */
 .ep-cell.locked, .ep-list .ep.locked { opacity: 0.45; }
 .ep-list .ep.locked { font-size: 11px; }
+
+/* 选集分组折叠 */
+.ep-groups { overflow-y: auto; flex: 1; padding: 4px 8px 10px; }
+.ep-group { margin-bottom: 4px; }
+.ep-group-head {
+  width: 100%; text-align: left; background: #1d1d21; color: #bbb;
+  border: none; border-radius: 7px; padding: 8px 10px; font-size: 12px; margin: 4px 0;
+}
+.ep-group-head:hover { color: #fff; }
+.ep-list { padding: 4px 0; }
