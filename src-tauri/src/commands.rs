@@ -1,6 +1,7 @@
 //! Tauri IPC 命令层。
 
 use crate::avplayer::{AvLoadInfo, AvPlayer, AvPosition};
+use tauri::Emitter;
 use crate::hongguo::{self, Hongguo};
 use crate::store::{FavoriteItem, HistoryItem, Store};
 use std::sync::{Arc, Mutex};
@@ -187,20 +188,19 @@ pub async fn av_set_layer_rect(
 }
 
 #[tauri::command]
-pub async fn av_pip_toggle(
-    app: tauri::AppHandle,
-    player: PlayerState<'_>,
-) -> Result<Option<bool>, String> {
+pub async fn av_pip_toggle(app: tauri::AppHandle, player: PlayerState<'_>) -> Result<(), String> {
+    // startPictureInPicture 内部依赖主线程事件循环继续运转，
+    // 若在本命令内阻塞等待主线程闭包完成会死锁（表现为"PiP 调用未完成"）。
+    // 故改为发射后不管：切换在主线程执行，失败通过事件回传前端。
     let player = player.inner().clone();
-    let out = Arc::new(Mutex::new(None::<Result<Option<bool>, String>>));
-    let out2 = Arc::clone(&out);
+    let app2 = app.clone();
     app.run_on_main_thread(move || {
-        let r = player.lock().unwrap().pip_toggle();
-        *out2.lock().unwrap() = Some(r);
+        if let Err(e) = player.lock().unwrap().pip_toggle() {
+            let _ = app2.emit("av-pip-error", e);
+        }
     })
     .map_err(|e| e.to_string())?;
-    let v = out.lock().unwrap().clone();
-    v.unwrap_or_else(|| Err("PiP 调用未完成".into()))
+    Ok(())
 }
 
 /// App 源预热：触发 sidecar 下载+解密+缓存（首次约 30-60 秒），完成后串流秒回。

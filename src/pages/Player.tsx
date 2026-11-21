@@ -290,6 +290,16 @@ export default function Player() {
     return () => window.removeEventListener("keydown", onKey);
   }, [nav, showUi, togglePlay]);
 
+  // PiP 失败事件（主线程异步回传）
+  useEffect(() => {
+    const un = listen<string>("av-pip-error", (ev) => {
+      setErr(String(ev.payload));
+    });
+    return () => {
+      un.then((f) => f()).catch(() => {});
+    };
+  }, []);
+
   // 老板键隐藏时可选静音
   useEffect(() => {
     const un = listen<string>("boss-key", async (ev) => {
@@ -613,14 +623,11 @@ export default function Player() {
               className={"ctrl-btn" + (pipOn ? " on" : "")}
               onClick={(e) => {
                 e.stopPropagation();
-                api
-                  .avPipToggle()
-                  .then((on) => {
-                    if (on != null) setPipOn(on);
-                  })
-                  .catch((err) => {
-                    setErr(String(err));
-                  });
+                setPipOn((v) => !v);
+                api.avPipToggle().catch((err) => {
+                  setErr(String(err));
+                  setPipOn((v) => !v);
+                });
               }}
               title="最小浮窗播放（画中画）"
             >
