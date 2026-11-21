@@ -330,29 +330,8 @@ export default function Player() {
     });
   }, [pi?.ep_index]);
 
-  // 原生视频层几何同步：跟随播放区矩形（窗口缩放/选集开合均自适应），视频始终居中
-  const syncLayerRect = useCallback(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    const r = stage.getBoundingClientRect();
-    api
-      .avSetLayerRect(r.x, r.y, r.width, r.height, window.innerHeight)
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (!pi) return;
-    syncLayerRect();
-    const stage = stageRef.current;
-    if (!stage) return;
-    const ro = new ResizeObserver(syncLayerRect);
-    ro.observe(stage);
-    window.addEventListener("resize", syncLayerRect);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", syncLayerRect);
-    };
-  }, [pi, epListOpen, syncLayerRect]);
+  // 原生视频层为全窗口尺寸（autoresizing 自动跟随窗口缩放），
+  // AVLayerVideoGravityResizeAspect 保证画面始终居中；此处的几何同步试验已回退。
 
   const seekTo = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!dur) return;
