@@ -418,6 +418,57 @@ export default function Player() {
           </div>
         )}
 
+      {/* 选集侧栏：分组折叠（长剧友好） */}
+      {epListOpen && pi && (
+        <div className="ep-sidebar" onClick={(e) => e.stopPropagation()}>
+          <div className="head">
+            {pi.title}（共 {epTotal} 集）
+          </div>
+          <div className="ep-groups">
+            {Array.from({ length: Math.ceil(epTotal / EP_GROUP) }, (_, g) => {
+              const start = g * EP_GROUP + 1;
+              const end = Math.min((g + 1) * EP_GROUP, epTotal);
+              const open = openGroups.has(g);
+              const items = pi.vid_list.slice(g * EP_GROUP, end).map((vid, k) => ({
+                vid,
+                ep: g * EP_GROUP + k + 1,
+              }));
+              return (
+                <div key={g} className="ep-group">
+                  <button
+                    className="ep-group-head"
+                    onClick={() =>
+                      setOpenGroups((s0) => {
+                        const n = new Set(s0);
+                        if (n.has(g)) n.delete(g);
+                        else n.add(g);
+                        return n;
+                      })
+                    }
+                  >
+                    {start}–{end} 集 {open ? "▾" : "▸"}
+                  </button>
+                  {open && (
+                    <div className="ep-list">
+                      {items.map(({ vid, ep }) => (
+                        <div
+                          key={vid}
+                          className={"ep" + (ep === pi.ep_index ? " sel" : "") + (ep > pi.accessible_episode_cnt ? " locked" : "")}
+                          title={ep > pi.accessible_episode_cnt ? "App 源播放（需模拟器环境运行）" : ""}
+                          onClick={() => gotoEp(ep)}
+                        >
+                          {ep}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
         {/* 控制条 */}
         <div
           className={"player-controls" + (uiVisible ? " show-ui" : "")}
@@ -613,56 +664,6 @@ export default function Player() {
         )}
       </div>
 
-      {/* 选集侧栏：分组折叠（长剧友好） */}
-      {epListOpen && pi && (
-        <div className="ep-sidebar" onClick={(e) => e.stopPropagation()}>
-          <div className="head">
-            {pi.title}（共 {epTotal} 集）
-          </div>
-          <div className="ep-groups">
-            {Array.from({ length: Math.ceil(epTotal / EP_GROUP) }, (_, g) => {
-              const start = g * EP_GROUP + 1;
-              const end = Math.min((g + 1) * EP_GROUP, epTotal);
-              const open = openGroups.has(g);
-              const items = pi.vid_list.slice(g * EP_GROUP, end).map((vid, k) => ({
-                vid,
-                ep: g * EP_GROUP + k + 1,
-              }));
-              return (
-                <div key={g} className="ep-group">
-                  <button
-                    className="ep-group-head"
-                    onClick={() =>
-                      setOpenGroups((s0) => {
-                        const n = new Set(s0);
-                        if (n.has(g)) n.delete(g);
-                        else n.add(g);
-                        return n;
-                      })
-                    }
-                  >
-                    {start}–{end} 集 {open ? "▾" : "▸"}
-                  </button>
-                  {open && (
-                    <div className="ep-list">
-                      {items.map(({ vid, ep }) => (
-                        <div
-                          key={vid}
-                          className={"ep" + (ep === pi.ep_index ? " sel" : "") + (ep > pi.accessible_episode_cnt ? " locked" : "")}
-                          title={ep > pi.accessible_episode_cnt ? "App 源播放（需模拟器环境运行）" : ""}
-                          onClick={() => gotoEp(ep)}
-                        >
-                          {ep}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
